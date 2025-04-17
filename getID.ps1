@@ -158,31 +158,39 @@ function Main {
     try {
         # --- Robust Script Directory Determination ---
         $ScriptDir = $null
-        if ($PSScriptRoot) { 
-            $ScriptDir = $PSScriptRoot 
-            Write-Host "Using PSScriptRoot: $ScriptDir"
-        }
-        elseif ($MyInvocation.MyCommand.Path) { 
-            $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path 
-            Write-Host "Using MyInvocation.MyCommand.Path: $ScriptDir"
-        }
-        elseif ($PassedScriptDir -and (Test-Path $PassedScriptDir -PathType Container)) { 
-            $ScriptDir = $PassedScriptDir 
-            Write-Host "Using PassedScriptDir: $ScriptDir"
-        }
-        elseif ($MyInvocation.InvocationName -ne '.') {
-            # 尝试从调用名称获取路径
-            $invocationPath = $MyInvocation.InvocationName
-            if (Test-Path $invocationPath) {
-                $ScriptDir = Split-Path -Parent (Resolve-Path $invocationPath)
-                Write-Host "Using InvocationName path: $ScriptDir"
-            }
-        }
         
-        # 如果仍然无法确定，尝试使用当前目录
-        if (-not $ScriptDir) {
-            $ScriptDir = Get-Location
-            Write-Host "Using current directory: $ScriptDir"
+        # 检查是否通过irm|iex方式执行
+        $isIrmExecution = $MyInvocation.InvocationName -eq '.' -or $MyInvocation.InvocationName -eq ''
+        
+        if ($isIrmExecution) {
+            Write-Host "Script appears to be executed via irm|iex, using temporary directory..." -ForegroundColor Yellow
+            # 创建临时目录
+            $tempDir = Join-Path $env:TEMP "getID_temp_$(Get-Random)"
+            if (-not (Test-Path $tempDir)) {
+                New-Item -Path $tempDir -ItemType Directory -Force | Out-Null
+            }
+            $ScriptDir = $tempDir
+            Write-Host "Using temporary directory: $ScriptDir"
+        }
+        else {
+            # 正常文件执行方式
+            if ($PSScriptRoot) { 
+                $ScriptDir = $PSScriptRoot 
+                Write-Host "Using PSScriptRoot: $ScriptDir"
+            }
+            elseif ($MyInvocation.MyCommand.Path) { 
+                $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path 
+                Write-Host "Using MyInvocation.MyCommand.Path: $ScriptDir"
+            }
+            elseif ($PassedScriptDir -and (Test-Path $PassedScriptDir -PathType Container)) { 
+                $ScriptDir = $PassedScriptDir 
+                Write-Host "Using PassedScriptDir: $ScriptDir"
+            }
+            else {
+                # 如果仍然无法确定，尝试使用当前目录
+                $ScriptDir = Get-Location
+                Write-Host "Using current directory: $ScriptDir"
+            }
         }
         
         if (-not $ScriptDir) { 
@@ -204,13 +212,32 @@ function Main {
         $currPrincipal = New-Object System.Security.Principal.WindowsPrincipal($currIdentity)
         if (-not $currPrincipal.IsInRole([System.Security.Principal.WindowsBuiltInRole]::Administrator)) {
             Write-Host "Current user is not an administrator, attempting to rerun script as administrator..." -ForegroundColor Yellow
-            if ($PSCommandPath -and (Test-Path $PSCommandPath)) {
-                 $scriptFullPath = $PSCommandPath
-                 $arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$scriptFullPath`" -PassedScriptDir `"$ScriptDir`""
-                 try { Start-Process powershell -Verb runAs -ArgumentList $arguments -ErrorAction Stop; exit 0 }
-                 catch { Write-Error "Failed to rerun script as administrator"; Read-Host "Press Enter to exit..."; exit 1 }
+            
+            # 如果是通过irm|iex执行，则无法重新启动为管理员
+            if ($isIrmExecution) {
+                Write-Warning "Cannot elevate to administrator when running via irm|iex. Please download the script and run it directly."
+                Read-Host "Press Enter to exit..."
+                exit 1
             }
-            else { Write-Error "Cannot find current script path"; Read-Host "Press Enter to exit..."; exit 1 }
+            
+            if ($PSCommandPath -and (Test-Path $PSCommandPath)) {
+                $scriptFullPath = $PSCommandPath
+                $arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$scriptFullPath`" -PassedScriptDir `"$ScriptDir`""
+                try { 
+                    Start-Process powershell -Verb runAs -ArgumentList $arguments -ErrorAction Stop
+                    exit 0 
+                }
+                catch { 
+                    Write-Error "Failed to rerun script as administrator: $($_.Exception.Message)"
+                    Read-Host "Press Enter to exit..."
+                    exit 1 
+                }
+            }
+            else { 
+                Write-Error "Cannot find current script path. Please run this script directly from its location."
+                Read-Host "Press Enter to exit..."
+                exit 1 
+            }
         }
         else { Write-Host "Already running with administrator privileges." -ForegroundColor Green }
         #endregion
