@@ -509,6 +509,22 @@ finally {
     }
 
     Write-Host "Script execution completed or encountered issues." -ForegroundColor Cyan
+    
+    # Read and display ID.txt content if it exists
+    $idFilePath = Join-Path -Path $ScriptDir -ChildPath "ID.txt"
+    if (Test-Path $idFilePath) {
+        Write-Host "`n=== ID.txt Content ===" -ForegroundColor Green
+        $idContent = Get-Content -Path $idFilePath -ErrorAction SilentlyContinue
+        if ($idContent) {
+            Write-Host "ID: $idContent" -ForegroundColor Yellow
+        } else {
+            Write-Host "ID.txt exists but is empty." -ForegroundColor Yellow
+        }
+        Write-Host "=====================`n" -ForegroundColor Green
+    } else {
+        Write-Host "`nID.txt file not found at: $idFilePath" -ForegroundColor Red
+    }
+    
     if (-not ($env:CI -eq $true -or $env:TF_BUILD -eq $true -or $MyInvocation.PipeLinePosition -gt 1)) {
         if ($Host.UI.RawUI.KeyAvailable) { 
             Write-Host "Press any key to exit..." -NoNewline; 
