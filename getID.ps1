@@ -216,27 +216,53 @@ function Main {
             # 如果是通过irm|iex执行，则无法重新启动为管理员
             if ($isIrmExecution) {
                 Write-Warning "Cannot elevate to administrator when running via irm|iex. Please download the script and run it directly."
-                Read-Host "Press Enter to exit..."
-                exit 1
+                Write-Warning "Continuing without administrator privileges, some features may not work correctly."
+                # 不退出，继续执行，但可能功能受限
             }
-            
-            if ($PSCommandPath -and (Test-Path $PSCommandPath)) {
-                $scriptFullPath = $PSCommandPath
-                $arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$scriptFullPath`" -PassedScriptDir `"$ScriptDir`""
-                try { 
-                    Start-Process powershell -Verb runAs -ArgumentList $arguments -ErrorAction Stop
-                    exit 0 
+            else {
+                # 尝试多种方法获取脚本路径
+                $scriptFullPath = $null
+                
+                # 方法1: 使用$PSCommandPath
+                if ($PSCommandPath -and (Test-Path $PSCommandPath)) {
+                    $scriptFullPath = $PSCommandPath
+                    Write-Host "Using PSCommandPath: $scriptFullPath"
                 }
-                catch { 
-                    Write-Error "Failed to rerun script as administrator: $($_.Exception.Message)"
-                    Read-Host "Press Enter to exit..."
-                    exit 1 
+                # 方法2: 使用$MyInvocation
+                elseif ($MyInvocation.MyCommand.Path -and (Test-Path $MyInvocation.MyCommand.Path)) {
+                    $scriptFullPath = $MyInvocation.MyCommand.Path
+                    Write-Host "Using MyInvocation.MyCommand.Path: $scriptFullPath"
                 }
-            }
-            else { 
-                Write-Error "Cannot find current script path. Please run this script directly from its location."
-                Read-Host "Press Enter to exit..."
-                exit 1 
+                # 方法3: 使用$PSScriptRoot
+                elseif ($PSScriptRoot) {
+                    $scriptName = Split-Path -Path $MyInvocation.MyCommand.Definition -Leaf
+                    $scriptFullPath = Join-Path -Path $PSScriptRoot -ChildPath $scriptName
+                    if (Test-Path $scriptFullPath) {
+                        Write-Host "Using PSScriptRoot + script name: $scriptFullPath"
+                    } else {
+                        $scriptFullPath = $null
+                    }
+                }
+                
+                if ($scriptFullPath -and (Test-Path $scriptFullPath)) {
+                    $arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$scriptFullPath`" -PassedScriptDir `"$ScriptDir`""
+                    Write-Host "Attempting to restart with admin privileges using: $scriptFullPath"
+                    try { 
+                        Start-Process powershell -Verb runAs -ArgumentList $arguments -ErrorAction Stop
+                        Write-Host "Successfully launched new process with admin privileges."
+                        exit 0 
+                    }
+                    catch { 
+                        Write-Warning "Failed to rerun script as administrator: $($_.Exception.Message)"
+                        Write-Warning "Continuing without administrator privileges, some features may not work correctly."
+                        # 不退出，继续执行，但可能功能受限
+                    }
+                }
+                else { 
+                    Write-Warning "Cannot find current script path. Continuing without administrator privileges."
+                    Write-Warning "Some features may not work correctly. Please run this script directly from its location."
+                    # 不退出，继续执行，但可能功能受限
+                }
             }
         }
         else { Write-Host "Already running with administrator privileges." -ForegroundColor Green }
