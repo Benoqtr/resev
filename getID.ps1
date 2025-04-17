@@ -525,6 +525,18 @@ finally {
         $idContent = Get-Content -Path $idFilePath -ErrorAction SilentlyContinue
         if ($idContent) {
             Write-Host "ID: $idContent" -ForegroundColor Yellow
+            
+            # Copy ID.txt to Downloads folder
+            $DownloadsPath = [Environment]::GetFolderPath("UserProfile") + "\Downloads"
+            $destPath = Join-Path -Path $DownloadsPath -ChildPath "ID.txt"
+            
+            try {
+                Copy-Item -Path $idFilePath -Destination $destPath -Force -ErrorAction Stop
+                Write-Host "ID.txt has been copied to: $destPath" -ForegroundColor Green
+            }
+            catch {
+                Write-Warning "Failed to copy ID.txt to Downloads folder: $($_.Exception.Message)"
+            }
         } else {
             Write-Host "ID.txt exists but is empty." -ForegroundColor Yellow
         }
@@ -539,6 +551,18 @@ finally {
             $idContent = Get-Content -Path $currentDirIdPath -ErrorAction SilentlyContinue
             if ($idContent) {
                 Write-Host "ID: $idContent" -ForegroundColor Yellow
+                
+                # Copy ID.txt to Downloads folder
+                $DownloadsPath = [Environment]::GetFolderPath("UserProfile") + "\Downloads"
+                $destPath = Join-Path -Path $DownloadsPath -ChildPath "ID.txt"
+                
+                try {
+                    Copy-Item -Path $currentDirIdPath -Destination $destPath -Force -ErrorAction Stop
+                    Write-Host "ID.txt has been copied to: $destPath" -ForegroundColor Green
+                }
+                catch {
+                    Write-Warning "Failed to copy ID.txt to Downloads folder: $($_.Exception.Message)"
+                }
             } else {
                 Write-Host "ID.txt exists but is empty." -ForegroundColor Yellow
             }
