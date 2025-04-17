@@ -158,11 +158,45 @@ function Main {
     try {
         # --- Robust Script Directory Determination ---
         $ScriptDir = $null
-        if ($PSScriptRoot) { $ScriptDir = $PSScriptRoot }
-        elseif ($MyInvocation.MyCommand.Path) { $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path }
-        elseif ($PassedScriptDir -and (Test-Path $PassedScriptDir -PathType Container)) { $ScriptDir = $PassedScriptDir }
-        else { Write-Error "Cannot determine script directory"; Read-Host "Press Enter to exit..."; exit 1 }
-        if (-not (Test-Path $ScriptDir -PathType Container)) { Write-Error "Invalid script directory"; Read-Host "Press Enter to exit..."; exit 1 }
+        if ($PSScriptRoot) { 
+            $ScriptDir = $PSScriptRoot 
+            Write-Host "Using PSScriptRoot: $ScriptDir"
+        }
+        elseif ($MyInvocation.MyCommand.Path) { 
+            $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path 
+            Write-Host "Using MyInvocation.MyCommand.Path: $ScriptDir"
+        }
+        elseif ($PassedScriptDir -and (Test-Path $PassedScriptDir -PathType Container)) { 
+            $ScriptDir = $PassedScriptDir 
+            Write-Host "Using PassedScriptDir: $ScriptDir"
+        }
+        elseif ($MyInvocation.InvocationName -ne '.') {
+            # 尝试从调用名称获取路径
+            $invocationPath = $MyInvocation.InvocationName
+            if (Test-Path $invocationPath) {
+                $ScriptDir = Split-Path -Parent (Resolve-Path $invocationPath)
+                Write-Host "Using InvocationName path: $ScriptDir"
+            }
+        }
+        
+        # 如果仍然无法确定，尝试使用当前目录
+        if (-not $ScriptDir) {
+            $ScriptDir = Get-Location
+            Write-Host "Using current directory: $ScriptDir"
+        }
+        
+        if (-not $ScriptDir) { 
+            Write-Error "Cannot determine script directory"; 
+            Read-Host "Press Enter to exit..."; 
+            exit 1 
+        }
+        
+        if (-not (Test-Path $ScriptDir -PathType Container)) { 
+            Write-Error "Invalid script directory: $ScriptDir"; 
+            Read-Host "Press Enter to exit..."; 
+            exit 1 
+        }
+        
         Write-Host "DEBUG: Final Script Directory confirmed as: '$ScriptDir'"
 
         #region Elevate to Administrator (if needed and possible)
