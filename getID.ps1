@@ -159,12 +159,12 @@ function Main {
         # --- Robust Script Directory Determination ---
         $ScriptDir = $null
         
-        # 检查是否通过irm|iex方式执行
+        # Check if script is executed via irm|iex
         $isIrmExecution = $MyInvocation.InvocationName -eq '.' -or $MyInvocation.InvocationName -eq ''
         
         if ($isIrmExecution) {
             Write-Host "Script appears to be executed via irm|iex, using temporary directory..." -ForegroundColor Yellow
-            # 创建临时目录
+            # Create temporary directory
             $tempDir = Join-Path $env:TEMP "getID_temp_$(Get-Random)"
             if (-not (Test-Path $tempDir)) {
                 New-Item -Path $tempDir -ItemType Directory -Force | Out-Null
@@ -173,7 +173,7 @@ function Main {
             Write-Host "Using temporary directory: $ScriptDir"
         }
         else {
-            # 正常文件执行方式
+            # Normal file execution method
             if ($PSScriptRoot) { 
                 $ScriptDir = $PSScriptRoot 
                 Write-Host "Using PSScriptRoot: $ScriptDir"
@@ -187,7 +187,7 @@ function Main {
                 Write-Host "Using PassedScriptDir: $ScriptDir"
             }
             else {
-                # 如果仍然无法确定，尝试使用当前目录
+                # If still cannot determine, try using current directory
                 $ScriptDir = Get-Location
                 Write-Host "Using current directory: $ScriptDir"
             }
@@ -213,27 +213,27 @@ function Main {
         if (-not $currPrincipal.IsInRole([System.Security.Principal.WindowsBuiltInRole]::Administrator)) {
             Write-Host "Current user is not an administrator, attempting to rerun script as administrator..." -ForegroundColor Yellow
             
-            # 如果是通过irm|iex执行，则无法重新启动为管理员
+            # If executed via irm|iex, cannot restart as administrator
             if ($isIrmExecution) {
                 Write-Warning "Cannot elevate to administrator when running via irm|iex. Please download the script and run it directly."
                 Write-Warning "Continuing without administrator privileges, some features may not work correctly."
-                # 不退出，继续执行，但可能功能受限
+                # Do not exit, continue execution but with limited functionality
             }
             else {
-                # 尝试多种方法获取脚本路径
+                # Try multiple methods to get script path
                 $scriptFullPath = $null
                 
-                # 方法1: 使用$PSCommandPath
+                # Method 1: Use $PSCommandPath
                 if ($PSCommandPath -and (Test-Path $PSCommandPath)) {
                     $scriptFullPath = $PSCommandPath
                     Write-Host "Using PSCommandPath: $scriptFullPath"
                 }
-                # 方法2: 使用$MyInvocation
+                # Method 2: Use $MyInvocation
                 elseif ($MyInvocation.MyCommand.Path -and (Test-Path $MyInvocation.MyCommand.Path)) {
                     $scriptFullPath = $MyInvocation.MyCommand.Path
                     Write-Host "Using MyInvocation.MyCommand.Path: $scriptFullPath"
                 }
-                # 方法3: 使用$PSScriptRoot
+                # Method 3: Use $PSScriptRoot
                 elseif ($PSScriptRoot) {
                     $scriptName = Split-Path -Path $MyInvocation.MyCommand.Definition -Leaf
                     $scriptFullPath = Join-Path -Path $PSScriptRoot -ChildPath $scriptName
@@ -255,13 +255,13 @@ function Main {
                     catch { 
                         Write-Warning "Failed to rerun script as administrator: $($_.Exception.Message)"
                         Write-Warning "Continuing without administrator privileges, some features may not work correctly."
-                        # 不退出，继续执行，但可能功能受限
+                        # Do not exit, continue execution but with limited functionality
                     }
                 }
                 else { 
                     Write-Warning "Cannot find current script path. Continuing without administrator privileges."
                     Write-Warning "Some features may not work correctly. Please run this script directly from its location."
-                    # 不退出，继续执行，但可能功能受限
+                    # Do not exit, continue execution but with limited functionality
                 }
             }
         }
@@ -462,7 +462,26 @@ function Main {
 }
 
 try {
-    Main @PSBoundParameters
+    # Check if script is executed via irm|iex
+    $isIrmExecution = $MyInvocation.InvocationName -eq '.' -or $MyInvocation.InvocationName -eq ''
+    
+    if ($isIrmExecution) {
+        Write-Host "Script appears to be executed via irm|iex, using temporary directory..." -ForegroundColor Yellow
+        # Create temporary directory
+        $tempDir = Join-Path $env:TEMP "getID_temp_$(Get-Random)"
+        if (-not (Test-Path $tempDir)) {
+            New-Item -Path $tempDir -ItemType Directory -Force | Out-Null
+        }
+        $scriptDir = $tempDir
+        Write-Host "Using temporary directory: $scriptDir"
+        
+        # Directly call Main function, not through PSBoundParameters
+        Main -PassedScriptDir $scriptDir
+    }
+    else {
+        # Normal call method
+        Main @PSBoundParameters
+    }
 }
 catch {
     Write-Error "Unhandled exception caught at script top level: $($_.Exception.Message)"
