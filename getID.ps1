@@ -1,47 +1,52 @@
-﻿#region 恢复代理函数（使用 $script: 作用域访问保存的变量）
+#region Restore Proxy Function (using $script: scope to access saved variables)
 function Restore-Proxy {
-    Write-Host "`n🧹 正在恢复原始代理设置..." -ForegroundColor Cyan
-    # 使用 Get-Variable 检查脚本作用域变量是否存在
+    Write-Host "Restoring original proxy settings..." -ForegroundColor Cyan
+    # Check if script scope variables exist using Get-Variable
     $oldEnableExists = Get-Variable -Name 'oldProxyEnable' -Scope 'Script' -ErrorAction SilentlyContinue
     $oldServerExists = Get-Variable -Name 'oldProxyServer' -Scope 'Script' -ErrorAction SilentlyContinue
 
     if ($oldEnableExists) {
-         # 恢复 ProxyEnable 使用保存的值
+         # Restore ProxyEnable using saved value
          try {
              Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings" -Name ProxyEnable -Value $script:oldProxyEnable -ErrorAction Stop
-             Write-Host "  已恢复 ProxyEnable 为: $($script:oldProxyEnable)"
-         } catch {
-              Write-Warning "❌ 恢复 ProxyEnable 失败: $($_.Exception.Message)"
+             Write-Host "  Restored ProxyEnable to: $($script:oldProxyEnable)"
          }
-    } else {
-         Write-Host "⚠️ 未找到保存的原始 ProxyEnable 值，跳过恢复。"
+         catch {
+              Write-Warning "Failed to restore ProxyEnable: $($_.Exception.Message)"
+         }
+    }
+    else {
+         Write-Host "No saved original ProxyEnable value found, skipping restore."
     }
 
     if ($oldServerExists) {
-         # 恢复 ProxyServer 使用保存的值 (如果它原本有值)
+         # Restore ProxyServer using saved value (if it had a value)
          if (-not [string]::IsNullOrEmpty($script:oldProxyServer)) {
              try {
                  Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings" -Name ProxyServer -Value $script:oldProxyServer -ErrorAction Stop
-                 Write-Host "  已恢复 ProxyServer 为: $($script:oldProxyServer)"
-             } catch {
-                  Write-Warning "❌ 恢复 ProxyServer 失败: $($_.Exception.Message)"
+                 Write-Host "  Restored ProxyServer to: $($script:oldProxyServer)"
              }
-         } else {
-             # 如果原始值是空的，则移除该键值
-             Write-Host "  原始 ProxyServer 为空，尝试移除注册表键..."
+             catch {
+                  Write-Warning "Failed to restore ProxyServer: $($_.Exception.Message)"
+             }
+         }
+         else {
+             # If original value was empty, remove the registry key
+             Write-Host "  Original ProxyServer was empty, attempting to remove registry key..."
              Remove-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings" -Name ProxyServer -ErrorAction SilentlyContinue
          }
-    } else {
-         Write-Host "⚠️ 未找到保存的原始 ProxyServer 值，跳过恢复。"
     }
-    Write-Host "✅ 原代理设置已尝试恢复。" -ForegroundColor Green
+    else {
+         Write-Host "No saved original ProxyServer value found, skipping restore."
+    }
+    Write-Host "Original proxy settings have been attempted to restore." -ForegroundColor Green
 }
 #endregion
 
-#region 全局异常处理与资源清理
+#region Global Exception Handling and Resource Cleanup
 trap [Exception] {
-    Write-Warning "❌ 脚本执行过程中发生意外错误: $($_.Exception.Message)"
-    Write-Warning "  错误发生在: $($_.InvocationInfo.ScriptName) - Line: $($_.InvocationInfo.ScriptLineNumber)"
+    Write-Warning "Unexpected error occurred during script execution: $($_.Exception.Message)"
+    Write-Warning "  Error occurred at: $($_.InvocationInfo.ScriptName) - Line: $($_.InvocationInfo.ScriptLineNumber)"
 
     # --- Cleanup potential temp python script on error ---
     if (Get-Variable -Name 'tempScriptPath' -Scope 'Script' -ErrorAction SilentlyContinue) {
@@ -57,54 +62,51 @@ trap [Exception] {
         (Get-Variable -Name 'oldProxyServer' -Scope 'Script' -ErrorAction SilentlyContinue)) {
         Write-Host "DEBUG: Error occurred, attempting proxy restore from trap..."
         Restore-Proxy
-    } else {
+    }
+    else {
         Write-Host "DEBUG: Error occurred before proxy settings were saved/modified, skipping restore from trap."
     }
 
-    Read-Host "发生错误，按 Enter 键退出..."
+    Read-Host "Error occurred, press Enter to exit..."
     exit 1
 }
 #endregion
 
-#region 文件下载辅助函数
-function Download-FileIfNeeded {
+#region File Download Helper Function
+function DownloadFileIfNeeded {
     param(
-        [Parameter(Mandatory=$true)]
+        [Parameter(Mandatory = $true)]
         [string]$FileUrl,
-        [Parameter(Mandatory=$true)]
+        [Parameter(Mandatory = $true)]
         [string]$DestinationPath
     )
 
     $FileName = Split-Path -Path $DestinationPath -Leaf
 
     if (-not (Test-Path $DestinationPath)) {
-        Write-Host "⏳ 文件 '$FileName' 不存在，正在尝试从 $FileUrl 下载..." -ForegroundColor Yellow
+        Write-Host "File '$FileName' does not exist, attempting to download from $FileUrl..." -ForegroundColor Yellow
         try {
-            # 使用 Invoke-WebRequest 下载文件 - 它将使用当前的系统代理设置（如果存在）
-            Write-Host "  (使用当前系统网络设置进行下载...)"
+            # Use Invoke-WebRequest to download file - it will use current system proxy settings (if any)
+            Write-Host "  (Using current system network settings for download...)"
             Invoke-WebRequest -Uri $FileUrl -OutFile $DestinationPath -UseBasicParsing -ErrorAction Stop
-            Write-Host "✅ 文件 '$FileName' 下载成功，已保存到: $DestinationPath" -ForegroundColor Green
-            return $true # 表示下载成功
-        } catch {
-            Write-Warning "❌ 下载文件 '$FileName' 失败: $($_.Exception.Message)"
-            if (Test-Path $DestinationPath) { Remove-Item $DestinationPath -Force -ErrorAction SilentlyContinue }
-            return $false # 表示下载失败
+            Write-Host "File '$FileName' downloaded successfully, saved to: $DestinationPath" -ForegroundColor Green
+            return $true # Indicates successful download
         }
-    } else {
-        Write-Host "👍 文件 '$FileName' 已存在于: $DestinationPath"
-        return $true # 表示文件已存在
+        catch {
+            Write-Warning "Failed to download file '$FileName': $($_.Exception.Message)"
+            if (Test-Path $DestinationPath) { Remove-Item $DestinationPath -Force -ErrorAction SilentlyContinue }
+            return $false # Indicates download failure
+        }
+    }
+    else {
+        Write-Host "File '$FileName' already exists at: $DestinationPath"
+        return $true # Indicates file already exists
     }
 }
 #endregion
 
-
-function Main {
-    param (
-        [string]$PassedScriptDir = $null
-    )
-
-    # --- Python Script Content ---
-$pythonScriptContent = @'
+# --- Python Script Content ---
+$pythonScriptContent = @"
 from mitmproxy import http, ctx
 import asyncio
 import os
@@ -112,8 +114,10 @@ import os
 script_dir = os.environ.get('MITMPROXY_SCRIPT_DIR', '.')
 output_file = os.path.join(script_dir, "ID.txt")
 
-print('\n请打开企业微信，与体育馆进行交互\n\n')
-
+print("'confused about Chinese error'")
+print("'interactivate whith gym in Wecom'")
+print("'interactivate whith gym in Wecom'")
+print("'interactivate whith gym in Wecom'")
 SESSION_FOUND = False
 
 def request(flow: http.HTTPFlow):
@@ -131,12 +135,12 @@ def request(flow: http.HTTPFlow):
                 if phpsessid and phpsessid.isalnum() and len(phpsessid) > 10:
                     try:
                         with open(output_file, "w", encoding="utf-8") as f: f.write(phpsessid)
-                        print(f"[✓] 抓到 PHPSESSID: {phpsessid}，已写入 {output_file}")
+                        print(f"[YES] CATCHED PHPSESSID: {phpsessid},WRITE INTO {output_file}")
                         SESSION_FOUND = True
                     except Exception as e:
-                        print(f"[X] 写入文件 {output_file} 时出错: {e}")
+                        print(f"[NO] WRITE INTO {output_file} ERROR:{e}")
                 else:
-                    print(f"[*] 提取到的 PHPSESSID 无效或太短: '{phpsessid}'")
+                    print(f"[?] INVALID PHPSESSID: '{phpsessid}'")
                 return
 
 def response(flow: http.HTTPFlow):
@@ -144,223 +148,253 @@ def response(flow: http.HTTPFlow):
         loop = asyncio.get_event_loop()
         if loop.is_running(): loop.call_later(5, ctx.master.shutdown)
         else: ctx.master.shutdown()
-'@
+"@
 
-    # --- Robust Script Directory Determination ---
-    $ScriptDir = $null
-    # ... (代码与之前相同) ...
-    if ($PSScriptRoot) { $ScriptDir = $PSScriptRoot }
-    elseif ($MyInvocation.MyCommand.Path) { $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path }
-    elseif ($PassedScriptDir -and (Test-Path $PassedScriptDir -PathType Container)) { $ScriptDir = $PassedScriptDir }
-    else { Write-Error "..."; Read-Host "..."; exit 1 }
-    if (-not (Test-Path $ScriptDir -PathType Container)) { Write-Error "..."; Read-Host "..."; exit 1 }
-    Write-Host "DEBUG: Final Script Directory confirmed as: '$ScriptDir'"
-    # ... (获取当前工作目录的代码) ...
+function Main {
+    param (
+        [string]$PassedScriptDir = $null
+    )
 
-    #region 提权为管理员（如果需要且可能）
-    # ... (代码与之前相同) ...
-    $currIdentity = [System.Security.Principal.WindowsIdentity]::GetCurrent()
-    $currPrincipal = New-Object System.Security.Principal.WindowsPrincipal($currIdentity)
-    if (-not $currPrincipal.IsInRole([System.Security.Principal.WindowsBuiltInRole]::Administrator)) {
-        # ... (尝试提权的代码) ...
-        Write-Host "当前用户非管理员，尝试以管理员身份重新运行脚本..." -ForegroundColor Yellow
-        if ($PSCommandPath -and (Test-Path $PSCommandPath)) {
-             $scriptFullPath = $PSCommandPath
-             $arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$scriptFullPath`" -PassedScriptDir `"$ScriptDir`""
-             try { Start-Process powershell -Verb runAs -ArgumentList $arguments -ErrorAction Stop; exit 0 }
-             catch { Write-Error "..."; Read-Host "..."; exit 1 }
-        } else { Write-Error "..."; Read-Host "..."; exit 1 }
-    } else { Write-Host "✅ 当前已是管理员权限。" -ForegroundColor Green }
-    #endregion
+    try {
+        # --- Robust Script Directory Determination ---
+        $ScriptDir = $null
+        if ($PSScriptRoot) { $ScriptDir = $PSScriptRoot }
+        elseif ($MyInvocation.MyCommand.Path) { $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path }
+        elseif ($PassedScriptDir -and (Test-Path $PassedScriptDir -PathType Container)) { $ScriptDir = $PassedScriptDir }
+        else { Write-Error "Cannot determine script directory"; Read-Host "Press Enter to exit..."; exit 1 }
+        if (-not (Test-Path $ScriptDir -PathType Container)) { Write-Error "Invalid script directory"; Read-Host "Press Enter to exit..."; exit 1 }
+        Write-Host "DEBUG: Final Script Directory confirmed as: '$ScriptDir'"
 
-    Write-Host "📂 当前脚本目录为：$ScriptDir"
-
-    # --- V V V 修改顺序 V V V ---
-
-    #region 1. 检查并下载依赖项 (证书) - 在修改代理之前
-    $certUrl = "https://raw.githubusercontent.com/Benoqtr/resev/main/mitmproxy-ca-cert.p12"
-    $certPath = Join-Path -Path $ScriptDir -ChildPath "mitmproxy-ca-cert.p12"
-    # 如果下载失败（函数返回 $false），不继续执行关键步骤
-    if (-not (Download-FileIfNeeded -FileUrl $certUrl -DestinationPath $certPath)) {
-         Write-Warning "⚠️ 证书文件无法下载或找到，但脚本将尝试继续（证书安装步骤会跳过）。"
-         # 不强制退出，因为证书不是绝对必须运行 mitmdump 的（尽管会导致 HTTPS 错误）
-    }
-    #endregion
-
-    #region 2. 安装 mitmproxy 证书（如果存在） - 在修改代理之前
-    if (Test-Path $certPath) {
-        try {
-            Write-Host "📄 检查 mitmproxy 根证书..."
-            $plainPassword = $null # 如果 p12 文件有密码，请在此处填写字符串
-
-            $certToImport = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2
-            if ([string]::IsNullOrWhiteSpace($plainPassword)) {
-                $certToImport.Import($certPath) # 无密码导入
-            } else {
-                # 对于 PFX 导入，密码处理更标准的方式
-                $certToImport.Import($certPath, $plainPassword, [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::PersistKeySet)
+        #region Elevate to Administrator (if needed and possible)
+        $currIdentity = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+        $currPrincipal = New-Object System.Security.Principal.WindowsPrincipal($currIdentity)
+        if (-not $currPrincipal.IsInRole([System.Security.Principal.WindowsBuiltInRole]::Administrator)) {
+            Write-Host "Current user is not an administrator, attempting to rerun script as administrator..." -ForegroundColor Yellow
+            if ($PSCommandPath -and (Test-Path $PSCommandPath)) {
+                 $scriptFullPath = $PSCommandPath
+                 $arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$scriptFullPath`" -PassedScriptDir `"$ScriptDir`""
+                 try { Start-Process powershell -Verb runAs -ArgumentList $arguments -ErrorAction Stop; exit 0 }
+                 catch { Write-Error "Failed to rerun script as administrator"; Read-Host "Press Enter to exit..."; exit 1 }
             }
+            else { Write-Error "Cannot find current script path"; Read-Host "Press Enter to exit..."; exit 1 }
+        }
+        else { Write-Host "Already running with administrator privileges." -ForegroundColor Green }
+        #endregion
 
-            $thumbprint = $certToImport.Thumbprint
-            # 检查证书是否已存在于目标存储区 (当前用户的根证书)
-            $store = New-Object System.Security.Cryptography.X509Certificates.X509Store("Root", "CurrentUser")
-            $store.Open("ReadOnly")
-            # 使用正确的 FindType 枚举和参数查找证书
-            $existing = $store.Certificates.Find([System.Security.Cryptography.X509Certificates.X509FindType]::FindByThumbprint, $thumbprint, $false) # $false 表示不查找无效证书
-            $store.Close()
+        Write-Host "Current script directory is: $ScriptDir"
 
-            if ($existing.Count -gt 0) {
-                Write-Host "✅ 证书 (Thumbprint: $thumbprint) 已存在于 当前用户 的 受信任的根证书颁发机构 存储区，跳过安装。" -ForegroundColor Green
-            } else {
-                Write-Host "🔐 正在将 mitmproxy 根证书导入到 当前用户 的 受信任的根证书颁发机构 存储区..." -ForegroundColor Yellow
-                # 打开存储区进行写入
+        # --- V V V Modified Order V V V ---
+
+        #region 1. Check and Download Dependencies (Certificate) - Before Modifying Proxy
+        $certUrl = "https://raw.githubusercontent.com/Benoqtr/resev/main/mitmproxy-ca-cert.p12"
+        $certPath = Join-Path -Path $ScriptDir -ChildPath "mitmproxy-ca-cert.p12"
+        # If download fails (function returns $false), don't continue with critical steps
+        if (-not (DownloadFileIfNeeded -FileUrl $certUrl -DestinationPath $certPath)) {
+             Write-Warning "Certificate file could not be downloaded or found, but script will attempt to continue (certificate installation step will be skipped)."
+             # Don't force exit as certificate is not absolutely required to run mitmdump (though it will cause HTTPS errors)
+        }
+        #endregion
+
+        #region 2. Install mitmproxy Certificate (if exists) - Before Modifying Proxy
+        if (Test-Path $certPath) {
+            try {
+                Write-Host "Checking mitmproxy root certificate..."
+                $plainPassword = $null # If p12 file has password, fill in string here
+
+                $certToImport = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2
+                if ([string]::IsNullOrWhiteSpace($plainPassword)) {
+                    $certToImport.Import($certPath) # Import without password
+                }
+                else {
+                    # More standard way to handle password for PFX import
+                    $certToImport.Import($certPath, $plainPassword, [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::PersistKeySet)
+                }
+
+                $thumbprint = $certToImport.Thumbprint
+                # Check if certificate already exists in target store (current user's root certificates)
                 $store = New-Object System.Security.Cryptography.X509Certificates.X509Store("Root", "CurrentUser")
-                $store.Open("ReadWrite")
-                $store.Add($certToImport)
+                $store.Open("ReadOnly")
+                # Use correct FindType enum and parameters to find certificate
+                $existing = $store.Certificates.Find([System.Security.Cryptography.X509Certificates.X509FindType]::FindByThumbprint, $thumbprint, $false) # $false means don't find invalid certificates
                 $store.Close()
 
-                # 验证是否导入成功
-                $storeVerify = New-Object System.Security.Cryptography.X509Certificates.X509Store("Root", "CurrentUser")
-                $storeVerify.Open("ReadOnly")
-                # 使用正确的 FindType 枚举和参数再次查找以验证
-                $check = $storeVerify.Certificates.Find([System.Security.Cryptography.X509Certificates.X509FindType]::FindByThumbprint, $thumbprint, $false)
-                $storeVerify.Close()
+                if ($existing.Count -gt 0) {
+                    Write-Host "Certificate (Thumbprint: $thumbprint) already exists in Current User's Trusted Root Certification Authorities store, skipping installation." -ForegroundColor Green
+                }
+                else {
+                    Write-Host "Importing mitmproxy root certificate to Current User's Trusted Root Certification Authorities store..." -ForegroundColor Yellow
+                    # Open store for writing
+                    $store = New-Object System.Security.Cryptography.X509Certificates.X509Store("Root", "CurrentUser")
+                    $store.Open("ReadWrite")
+                    $store.Add($certToImport)
+                    $store.Close()
 
-                if ($check.Count -gt 0) {
-                    Write-Host "✅ 证书导入成功 (Thumbprint: $thumbprint)。" -ForegroundColor Green
-                } else {
-                    Write-Warning "❌ 证书导入后验证失败！"
+                    # Verify import success
+                    $storeVerify = New-Object System.Security.Cryptography.X509Certificates.X509Store("Root", "CurrentUser")
+                    $storeVerify.Open("ReadOnly")
+                    # Use correct FindType enum and parameters to find again for verification
+                    $check = $storeVerify.Certificates.Find([System.Security.Cryptography.X509Certificates.X509FindType]::FindByThumbprint, $thumbprint, $false)
+                    $storeVerify.Close()
+
+                    if ($check.Count -gt 0) {
+                        Write-Host "Certificate import successful (Thumbprint: $thumbprint)." -ForegroundColor Green
+                    }
+                    else {
+                        Write-Warning "Certificate import verification failed!"
+                    }
                 }
             }
-        } catch {
-            Write-Warning "❌ 处理证书时发生错误：$($_.Exception.Message)"
-            # 可以在这里添加更详细的错误信息，例如 $_.ScriptStackTrace
+            catch {
+                Write-Warning "Error processing certificate: $($_.Exception.Message)"
+                # Can add more detailed error information here, e.g. $_.ScriptStackTrace
+            }
         }
-    } else {
-        Write-Warning "⚠️ 跳过证书安装，因为文件 '$certPath' 不存在。"
-    }
-    #endregion
+        else {
+            Write-Warning "Skipping certificate installation as file '$certPath' does not exist."
+        }
+        #endregion
 
-    #region 3. 检查并下载依赖项 (mitmdump) - 在修改代理之前
-    $mitmdumpUrl = "https://raw.githubusercontent.com/Benoqtr/resev/main/mitmdump.exe"
-    $mitmdumpPath = Join-Path -Path $ScriptDir -ChildPath "mitmdump.exe"
-    # 如果 mitmdump 下载失败（函数返回 $false），则无法继续，直接退出
-    if (-not (Download-FileIfNeeded -FileUrl $mitmdumpUrl -DestinationPath $mitmdumpPath)) {
-         Write-Error "关键依赖 'mitmdump.exe' 无法下载或找到。脚本无法继续。"
-         Read-Host "按 Enter 键退出..."
-         exit 1 # 直接退出，因为没有修改代理，所以不需要恢复
-    }
-    #endregion
+        #region 3. Check and Download Dependencies (mitmdump) - Before Modifying Proxy
+        $mitmdumpUrl = "https://raw.githubusercontent.com/Benoqtr/resev/main/mitmdump.exe"
+        $mitmdumpPath = Join-Path -Path $ScriptDir -ChildPath "mitmdump.exe"
+        # If mitmdump download fails (function returns $false), cannot continue, exit directly
+        if (-not (DownloadFileIfNeeded -FileUrl $mitmdumpUrl -DestinationPath $mitmdumpPath)) {
+             Write-Error "Critical dependency 'mitmdump.exe' could not be downloaded or found. Script cannot continue."
+             Read-Host "Press Enter to exit..."
+             exit 1 # Exit directly as proxy hasn't been modified, so no need to restore
+        }
+        #endregion
 
-    # --- 文件准备完毕，现在可以修改代理了 ---
+        # --- Files prepared, now can modify proxy ---
 
-    #region 4. 保存当前代理设置供恢复时使用
-    Write-Host "ℹ️ 正在保存当前代理设置..."
-    $script:oldProxyEnable = $null
-    $script:oldProxyServer = $null
-    try {
-        # ... (保存代理设置代码，与之前相同) ...
-        $initialProxySettings = Get-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings" -ErrorAction SilentlyContinue
-        if ($initialProxySettings) {
-            if ($initialProxySettings.PSObject.Properties.Name -contains 'ProxyEnable') { $script:oldProxyEnable = $initialProxySettings.ProxyEnable; Write-Host "  原始代理启用状态已保存: $($script:oldProxyEnable)" } else { $script:oldProxyEnable = 0; Write-Host "  未找到 ProxyEnable，假定为 0。" }
-            if ($initialProxySettings.PSObject.Properties.Name -contains 'ProxyServer') { $script:oldProxyServer = $initialProxySettings.ProxyServer; Write-Host "  原始代理服务器已保存: $($script:oldProxyServer)" } else { $script:oldProxyServer = ""; Write-Host "  未找到 ProxyServer，假定为空。" }
-        } else { $script:oldProxyEnable = 0; $script:oldProxyServer = ""; Write-Host "  未能读取注册表项，假定默认值。" }
-    } catch {
-         Write-Warning "❌ 保存原始代理设置时出错: $($_.Exception.Message)"; $script:oldProxyEnable = 0; $script:oldProxyServer = ""; Write-Warning "  将使用默认值恢复。"
-    }
-    #endregion
+        #region 4. Save Current Proxy Settings for Restoration
+        Write-Host "Saving current proxy settings..."
+        $script:oldProxyEnable = $null
+        $script:oldProxyServer = $null
+        try {
+            $initialProxySettings = Get-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings" -ErrorAction SilentlyContinue
+            if ($initialProxySettings) {
+                if ($initialProxySettings.PSObject.Properties.Name -contains 'ProxyEnable') { $script:oldProxyEnable = $initialProxySettings.ProxyEnable; Write-Host "  Original proxy enable state saved: $($script:oldProxyEnable)" } else { $script:oldProxyEnable = 0; Write-Host "  ProxyEnable not found, assuming 0." }
+                if ($initialProxySettings.PSObject.Properties.Name -contains 'ProxyServer') { $script:oldProxyServer = $initialProxySettings.ProxyServer; Write-Host "  Original proxy server saved: $($script:oldProxyServer)" } else { $script:oldProxyServer = ""; Write-Host "  ProxyServer not found, assuming empty." }
+            }
+            else { $script:oldProxyEnable = 0; $script:oldProxyServer = ""; Write-Host "  Could not read registry key, assuming default values." }
+        }
+        catch {
+             Write-Warning "Error saving original proxy settings: $($_.Exception.Message)"; $script:oldProxyEnable = 0; $script:oldProxyServer = ""; Write-Warning "  Will use default values for restoration."
+        }
+        #endregion
 
-    #region 5. 设置代理
-    Write-Host "📡 正在设置临时系统代理为 127.0.0.1:8080..." -ForegroundColor Yellow
-    try {
-        Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings" -Name ProxyEnable -Value 1 -ErrorAction Stop
-        Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings" -Name ProxyServer -Value "127.0.0.1:8080" -ErrorAction Stop
-        Write-Host "✔️ 临时代理已设置。" -ForegroundColor Green
-    } catch {
-        Write-Warning "❌ 设置临时代理失败: $($_.Exception.Message)。"
-        # 尝试恢复到刚保存的状态
-        Write-Warning "尝试恢复原始代理设置..."
+        #region 5. Set Proxy
+        Write-Host "Setting temporary system proxy to 127.0.0.1:8080..." -ForegroundColor Yellow
+        try {
+            Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings" -Name ProxyEnable -Value 1 -ErrorAction Stop
+            Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings" -Name ProxyServer -Value "127.0.0.1:8080" -ErrorAction Stop
+            Write-Host "Temporary proxy has been set." -ForegroundColor Green
+        }
+        catch {
+            Write-Warning "Failed to set temporary proxy: $($_.Exception.Message)."
+            # Try to restore to just saved state
+            Write-Warning "Attempting to restore original proxy settings..."
+            Restore-Proxy
+            Read-Host "Failed to set proxy, original settings restored. Press Enter to exit..."
+            exit 1 # Exit as cannot set proxy
+        }
+        #endregion
+
+        #region 6. Launch mitmproxy (using temporary Python script)
+        $script:tempScriptPath = Join-Path $ScriptDir "_temp_mitm_extract_session.py"
+        # Ensure working directory is correct
+        try { 
+            Set-Location $ScriptDir -ErrorAction Stop 
+        } 
+        catch { 
+            Write-Error "Cannot set working directory"; 
+            Restore-Proxy; 
+            Read-Host "Press Enter to exit..."; 
+            exit 1 
+        }
+
+        # mitmdumpPath is now definitely valid
+        $mitmPath = $mitmdumpPath
+
+        # --- Create Temp Python Script ---
+        Write-Host "Creating temporary mitmproxy script: $script:tempScriptPath"
+        try {
+            $env:MITMPROXY_SCRIPT_DIR = $ScriptDir
+            $Utf8NoBomEncoding = New-Object System.Text.UTF8Encoding($false)
+            [System.IO.File]::WriteAllLines($script:tempScriptPath, $pythonScriptContent, $Utf8NoBomEncoding)
+            Write-Host "Temporary script created successfully." -ForegroundColor Green
+        }
+        catch {
+            Write-Error "Failed to create temporary mitmproxy script: $($_.Exception.Message)"
+            Restore-Proxy # Need to restore proxy
+            Read-Host "Failed to create temporary script, press Enter to exit..."
+            exit 1
+        }
+
+        # --- Launch mitmproxy using the temp script ---
+        $mitmExecutable = Split-Path $mitmPath -Leaf
+        try {
+            Write-Host "Preparing to launch $mitmExecutable (using temporary script)..." -ForegroundColor Cyan
+            $arguments = @( "-s", "`"$script:tempScriptPath`"", "--set", "block_global=false" )
+            Write-Host "  Will use the following command: `"$mitmPath`" $($arguments -join ' ')"
+            $env:MITMPROXY_SCRIPT_DIR = $ScriptDir
+            $processInfo = Start-Process -FilePath "$mitmPath" -ArgumentList $arguments -Wait -PassThru -ErrorAction Stop
+            Write-Host "$mitmExecutable has exited (Exit Code: $($processInfo.ExitCode))."
+        }
+        catch {
+            Write-Warning "Failed to launch ${mitmExecutable}: $($_.Exception.Message)"
+            # Restore-Proxy will be called in finally
+        }
+        finally {
+            # --- Cleanup Temp Python Script ---
+            if ($script:tempScriptPath -and (Test-Path $script:tempScriptPath)) {
+                Write-Host "Cleaning up temporary mitmproxy script: $script:tempScriptPath"
+                Remove-Item -Path $script:tempScriptPath -Force -ErrorAction SilentlyContinue
+            }
+            if ($env:MITMPROXY_SCRIPT_DIR) { 
+                Remove-Item Env:\MITMPROXY_SCRIPT_DIR -ErrorAction SilentlyContinue 
+            }
+            # Don't restore proxy here, moved to end of Main function
+        }
+        #endregion
+
+        # --- Restore Proxy after mitmproxy execution ---
+        Write-Host "DEBUG: Reached end of Main function logic, calling Restore-Proxy..."
         Restore-Proxy
-        Read-Host "设置代理失败，已恢复原始设置。按 Enter 键退出..."
-        exit 1 # 退出，因为无法设置代理
+
+        Write-Host "Main function execution completed." -ForegroundColor Green
     }
-    #endregion
-
-    #region 6. 启动 mitmproxy (使用临时 Python 脚本)
-    $script:tempScriptPath = Join-Path $ScriptDir "_temp_mitm_extract_session.py"
-    # 确保工作目录正确
-    try { Set-Location $ScriptDir -ErrorAction Stop } catch { Write-Error "..."; Restore-Proxy; Read-Host "..."; exit 1 }
-
-    # mitmdumpPath 此时必然存在且有效
-    $mitmPath = $mitmdumpPath
-
-    # --- Create Temp Python Script ---
-    Write-Host "ℹ️ 正在创建临时的 mitmproxy 脚本: $script:tempScriptPath"
-    try {
-        # ... (创建临时 Python 脚本的代码) ...
-        $env:MITMPROXY_SCRIPT_DIR = $ScriptDir
-        $Utf8NoBomEncoding = New-Object System.Text.UTF8Encoding($false)
-        [System.IO.File]::WriteAllLines($script:tempScriptPath, $pythonScriptContent, $Utf8NoBomEncoding)
-        Write-Host "✅ 临时脚本创建成功。" -ForegroundColor Green
-    } catch {
-        Write-Error "❌ 创建临时 mitmproxy 脚本失败: $($_.Exception.Message)"
-        Restore-Proxy # 需要恢复代理
-        Read-Host "创建临时脚本失败，按 Enter 退出..."
+    catch {
+        Write-Error "Error occurred during Main function execution: $($_.Exception.Message)"
+        Write-Error "Error occurred at: $($_.InvocationInfo.ScriptName) - Line: $($_.InvocationInfo.ScriptLineNumber)"
+        Restore-Proxy
+        Read-Host "Error occurred, press Enter to exit..."
         exit 1
     }
+}
 
-    # --- Launch mitmproxy using the temp script ---
-    $mitmExecutable = Split-Path $mitmPath -Leaf
-    try {
-        # ... (启动 mitmproxy 的代码) ...
-        Write-Host "🚀 准备启动 $mitmExecutable (使用临时脚本)..." -ForegroundColor Cyan
-        $arguments = @( "-s", "`"$script:tempScriptPath`"", "--set", "block_global=false" )
-        Write-Host "  将使用以下命令启动: `"$mitmPath`" $($arguments -join ' ')"
-        $env:MITMPROXY_SCRIPT_DIR = $ScriptDir
-        $processInfo = Start-Process -FilePath "$mitmPath" -ArgumentList $arguments -Wait -PassThru -ErrorAction Stop
-        Write-Host "🛑 $mitmExecutable 已退出 (Exit Code: $($processInfo.ExitCode))。"
-    } catch {
-        Write-Warning "❌ 启动 $mitmExecutable 失败: $($_.Exception.Message)"
-        # Restore-Proxy 会在 finally 中调用
-    } finally {
-        # --- Cleanup Temp Python Script ---
-        if ($script:tempScriptPath -and (Test-Path $script:tempScriptPath)) {
-            Write-Host "ℹ️ 正在清理临时 mitmproxy 脚本: $script:tempScriptPath"
-            Remove-Item -Path $script:tempScriptPath -Force -ErrorAction SilentlyContinue
-        }
-        if ($env:MITMPROXY_SCRIPT_DIR) { Remove-Item Env:\MITMPROXY_SCRIPT_DIR -ErrorAction SilentlyContinue }
-        # 不在此处恢复代理，移至 Main 函数末尾
-    }
-    #endregion
-
-    # --- Restore Proxy after mitmproxy execution ---
-    Write-Host "DEBUG: Reached end of Main function logic, calling Restore-Proxy..."
-    Restore-Proxy
-
-    Write-Host "✅ Main 函数执行完毕。" -ForegroundColor Green
-
-} # End of Main function
-
-
-# --- 脚本入口点 ---
 try {
     Main @PSBoundParameters
-} catch {
-    Write-Error "脚本顶层捕获到未处理的异常: $($_.Exception.Message)"
-    # Trap handler (如果触发) 应该已尝试恢复代理
-} finally {
-    Write-Host "🚪 进入脚本末尾的 finally 块。"
+}
+catch {
+    Write-Error "Unhandled exception caught at script top level: $($_.Exception.Message)"
+    # Trap handler (if triggered) should have attempted to restore proxy
+}
+finally {
+    Write-Host "Entering script end finally block."
 
-    # 最终的代理恢复检查 (以防万一)
+    # Final proxy restoration check (just in case)
     if ((Get-Variable -Name 'oldProxyEnable' -Scope 'Script' -ErrorAction SilentlyContinue) -or `
         (Get-Variable -Name 'oldProxyServer' -Scope 'Script' -ErrorAction SilentlyContinue)) {
          Write-Host "DEBUG: Final check in top-level finally block, ensuring proxy is restored..."
          Restore-Proxy
-    } else {
+    }
+    else {
          Write-Host "DEBUG: No saved proxy state found in top-level finally, skipping restore."
     }
 
-    # 最终的临时文件清理检查
+    # Final temporary file cleanup check
     if (Get-Variable -Name 'tempScriptPath' -Scope 'Script' -ErrorAction SilentlyContinue) {
         if ($script:tempScriptPath -and (Test-Path $script:tempScriptPath)) {
             Write-Host "DEBUG: Final cleanup check for temporary script file: $script:tempScriptPath"
@@ -368,9 +402,14 @@ try {
         }
     }
 
-    Write-Host "脚本执行完毕或遇到问题。" -ForegroundColor Cyan
+    Write-Host "Script execution completed or encountered issues." -ForegroundColor Cyan
     if (-not ($env:CI -eq $true -or $env:TF_BUILD -eq $true -or $MyInvocation.PipeLinePosition -gt 1)) {
-      if ($Host.UI.RawUI.KeyAvailable) { Write-Host "按任意键退出..." -NoNewline; $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown") | Out-Null }
-      else { Read-Host "按 Enter 键退出..." }
+        if ($Host.UI.RawUI.KeyAvailable) { 
+            Write-Host "Press any key to exit..." -NoNewline; 
+            $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown") | Out-Null 
+        }
+        else { 
+            Read-Host "Press Enter to exit..." 
+        }
     }
 }
