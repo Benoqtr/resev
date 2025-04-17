@@ -1,4 +1,4 @@
-#Requires -Version 3.0
+﻿#Requires -Version 3.0
 
 #region 恢复代理函数（使用 $script: 作用域访问保存的变量）
 function Restore-Proxy {
