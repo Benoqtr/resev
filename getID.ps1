@@ -512,6 +512,14 @@ finally {
     
     # Read and display ID.txt content if it exists
     $idFilePath = Join-Path -Path $ScriptDir -ChildPath "ID.txt"
+    Write-Host "`nChecking for ID.txt at: $idFilePath" -ForegroundColor Cyan
+    
+    # List all files in the script directory to help diagnose
+    Write-Host "Files in script directory:" -ForegroundColor Cyan
+    Get-ChildItem -Path $ScriptDir | ForEach-Object {
+        Write-Host "  - $($_.Name)" -ForegroundColor Gray
+    }
+    
     if (Test-Path $idFilePath) {
         Write-Host "`n=== ID.txt Content ===" -ForegroundColor Green
         $idContent = Get-Content -Path $idFilePath -ErrorAction SilentlyContinue
@@ -523,6 +531,18 @@ finally {
         Write-Host "=====================`n" -ForegroundColor Green
     } else {
         Write-Host "`nID.txt file not found at: $idFilePath" -ForegroundColor Red
+        
+        # Check if the file might be in the current directory
+        $currentDirIdPath = Join-Path -Path (Get-Location) -ChildPath "ID.txt"
+        if (Test-Path $currentDirIdPath) {
+            Write-Host "Found ID.txt in current directory instead:" -ForegroundColor Yellow
+            $idContent = Get-Content -Path $currentDirIdPath -ErrorAction SilentlyContinue
+            if ($idContent) {
+                Write-Host "ID: $idContent" -ForegroundColor Yellow
+            } else {
+                Write-Host "ID.txt exists but is empty." -ForegroundColor Yellow
+            }
+        }
     }
     
     if (-not ($env:CI -eq $true -or $env:TF_BUILD -eq $true -or $MyInvocation.PipeLinePosition -gt 1)) {
